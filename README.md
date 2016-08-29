@@ -4,6 +4,9 @@ Sendgrid Mailer for Yii2
 
 > based on [shershennm/yii2-sendgrid](https://github.com/shershennm/yii2-sendgrid.git)
 
+[![Latest Stable Version](https://poser.pugx.org/thiagotalma/yii2-sendgrid/v/stable.png)](https://packagist.org/packages/thiagotalma/yii2-sendgrid)
+[![Total Downloads](https://poser.pugx.org/thiagotalma/yii2-sendgrid/downloads.png)](https://packagist.org/packages/thiagotalma/yii2-sendgrid)
+
 Installation
 ------------
 
