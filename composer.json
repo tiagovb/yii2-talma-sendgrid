@@ -12,7 +12,7 @@
     ],
     "require": {
         "yiisoft/yii2": "*",
-        "sendgrid/sendgrid": "^5.1"
+        "sendgrid/sendgrid": "5.1"
     },
     "autoload": {
         "psr-4": {
