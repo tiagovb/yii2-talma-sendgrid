@@ -2,8 +2,12 @@
 
 namespace talma\sendgrid;
 
+use SendGrid\Content;
 use SendGrid\Email;
+use SendGrid\Mail;
+use SendGrid\Personalization;
 use yii\helpers\BaseArrayHelper;
+use yii\helpers\Json;
 use yii\mail\BaseMessage;
 
 /**
@@ -11,22 +15,25 @@ use yii\mail\BaseMessage;
  *
  * @package talma\sendgrid
  *
- * @property Email $sendGridMessage
+ * @property Mail $sendGridMessage
  */
 class Message extends BaseMessage
 {
     /**
-     * @var Email
+     * @var Mail
      */
     private $_sendGridMessage;
 
     /**
-     * @return Email
+     * @return Mail
      */
     public function getSendGridMessage()
     {
         if ($this->_sendGridMessage == null) {
-            $this->_sendGridMessage = new Email();
+            $this->_sendGridMessage = new Mail();
+            if (empty($this->_sendGridMessage->getPersonalizations())) {
+                $this->_sendGridMessage->addPersonalization(new Personalization());
+            }
         }
 
         return $this->_sendGridMessage;
@@ -40,27 +47,15 @@ class Message extends BaseMessage
      */
     public function setSendGridSubstitution($templateId, array $templateSubstitution = [])
     {
-        $this->sendGridMessage->addFilter('templates', 'enabled', 1)
-            ->addFilter('templates', 'template_id', $templateId)
-            ->setSubstitutions($this->normalizeSubstitution($templateSubstitution));
-
-        return $this;
-    }
-
-    /**
-     * @param  array $templateSubstitution [key => value]
-     *
-     * @return array [key => [value]] for substition
-     */
-    private function normalizeSubstitution($templateSubstitution)
-    {
-        foreach ($templateSubstitution as $key => $value) {
-            if (!is_array($value)) {
-                $templateSubstitution[$key] = [$value];
+        if (BaseArrayHelper::isAssociative($templateSubstitution)) {
+            foreach ($templateSubstitution as $key => $value) {
+                $this->getPersonalization()->addSubstitution($key, $value);
             }
         }
 
-        return $templateSubstitution;
+        $this->sendGridMessage->setTemplateId($templateId);
+
+        return $this;
     }
 
     /**
@@ -93,11 +88,14 @@ class Message extends BaseMessage
     public function setFrom($from)
     {
         if (is_array($from) && BaseArrayHelper::isAssociative($from)) {
-            $this->sendGridMessage->setFrom(key($from));
-            $this->sendGridMessage->setFromName(current($from));
+            $mailAddress = key($from);
+            $name = current($from);
+            $email = new Email($name, $mailAddress);
         } else {
-            $this->sendGridMessage->setFrom($from);
+            $email = new Email(null, $from);
         }
+
+        $this->sendGridMessage->setFrom($email);
 
         return $this;
     }
@@ -125,15 +123,25 @@ class Message extends BaseMessage
      */
     public function getTo()
     {
-        return $this->sendGridMessage->to;
+        return $this->getPersonalization()->getTos();
     }
 
     /**
+     * @SuppressWarnings(PHPMD.ShortVariable)
+     *
      * @inheritdoc
      */
     public function setTo($to)
     {
-        $this->addEmailParam($to, 'to');
+        if (is_array($to) && BaseArrayHelper::isAssociative($to)) {
+            $address = key($to);
+            $name = current($to);
+            $email = new Email($name, $address);
+        } else {
+            $email = new Email(null, $to);
+        }
+
+        $this->getPersonalization()->addTo($email);
 
         return $this;
     }
@@ -143,15 +151,18 @@ class Message extends BaseMessage
      */
     public function getCc()
     {
-        return $this->sendGridMessage->getCcs();
+
+        return $this->getPersonalization()->getCcs();
     }
 
     /**
+     * @SuppressWarnings(PHPMD.ShortVariable)
+     *
      * @inheritdoc
      */
     public function setCc($cc)
     {
-        $this->addEmailParam($cc, 'cc');
+        $this->getPersonalization()->addCc($cc);
 
         return $this;
     }
@@ -161,7 +172,7 @@ class Message extends BaseMessage
      */
     public function getBcc()
     {
-        return $this->sendGridMessage->getBccs();
+        return $this->getPersonalization()->getBccs();
     }
 
     /**
@@ -169,7 +180,7 @@ class Message extends BaseMessage
      */
     public function setBcc($bcc)
     {
-        $this->addEmailParam($bcc, 'bcc');
+        $this->getPersonalization()->addBcc($bcc);
 
         return $this;
     }
@@ -197,7 +208,8 @@ class Message extends BaseMessage
      */
     public function setTextBody($text)
     {
-        $this->sendGridMessage->setText($text);
+        $content = new Content("text/plain", $text);
+        $this->sendGridMessage->addContent($content);
 
         return $this;
     }
@@ -207,7 +219,10 @@ class Message extends BaseMessage
      */
     public function setHtmlBody($html)
     {
-        $this->sendGridMessage->setHtml($html);
+        if (!empty($html)) {
+            $content = new Content("text/html", $html);
+            $this->sendGridMessage->addContent($content);
+        }
 
         return $this;
     }
@@ -256,6 +271,10 @@ class Message extends BaseMessage
     public function addCategories(array $categories = [])
     {
         foreach ($categories as $category) {
+            if (!empty($this->sendGridMessage->categories) && in_array($category, $this->sendGridMessage->categories)) {
+                continue;
+            }
+
             $this->sendGridMessage->addCategory($category);
         }
 
@@ -267,64 +286,14 @@ class Message extends BaseMessage
      */
     public function toString()
     {
-        $string = '';
-        foreach ($this->sendGridMessage->toWebFormat() as $key => $value) {
-            $string .= sprintf("%s:%s\n", $key, $this->processWebFormatElement($value));
-        }
-
-        return $string;
+        return Json::encode($this->sendGridMessage->jsonSerialize());
     }
 
     /**
-     * @param  array|string $elValue
-     *
-     * @return string
+     * @return Personalization
      */
-    private function processWebFormatElement($elValue)
+    protected function getPersonalization()
     {
-        return is_array($elValue) ? implode(', ', $elValue) : $elValue;
-    }
-
-    /**
-     * Adding to sendgrid params which coontains email new items
-     *
-     * @param string|array $paramValue ['email' => 'name'] or ['email', ['email' => 'name'], 'email'] or 'email'
-     * @param string $paramType sendGrid var name like cc, bcc, to, from
-     *
-     * @inheritdoc yii\mail\MessageInterface for more info
-     *
-     * @return $this
-     */
-    private function addEmailParam($paramValue, $paramType)
-    {
-        $paramTypeName = $paramType . 'Name';
-
-        $this->sendGridMessage->$paramType = [];
-        $this->sendGridMessage->$paramTypeName = [];
-
-        if (!is_array($paramValue) || BaseArrayHelper::isAssociative($paramValue)) {
-            $this->addSingleParam($paramValue, $paramType);
-        } else {
-            foreach ($paramValue as $value) {
-                $this->addSingleParam($value, $paramType);
-            }
-        }
-
-        return $this;
-    }
-
-    /**
-     * @param string|array $paramValue ['email' => 'name'] or 'email'
-     * @param string $paramType sendGrid var name like cc, bcc, to
-     */
-    private function addSingleParam($paramValue, $paramType)
-    {
-        $addFunction = 'add' . ucfirst($paramType);
-
-        if (is_array($paramValue) && BaseArrayHelper::isAssociative($paramValue)) {
-            $this->sendGridMessage->$addFunction(key($paramValue), current($paramValue));
-        } else {
-            $this->sendGridMessage->$addFunction($paramValue);
-        }
+        return $this->sendGridMessage->getPersonalizations()[0];
     }
 }
