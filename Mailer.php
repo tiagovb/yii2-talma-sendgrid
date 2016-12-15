@@ -2,9 +2,10 @@
 
 namespace talma\sendgrid;
 
-use Yii;
+use SendGrid\Response;
 use yii\base\InvalidConfigException;
-use yii\helpers\Json;
+use yii\base\InvalidParamException;
+use yii\helpers\BaseArrayHelper;
 use yii\mail\BaseMailer;
 
 /**
@@ -25,16 +26,6 @@ class Mailer extends BaseMailer
     public $messageClass = 'talma\sendgrid\Message';
 
     /**
-     * @var string the username for the sendgrid api
-     */
-    public $username;
-
-    /**
-     * @var string the password for the sendgrid api
-     */
-    public $password;
-
-    /**
      * @var string key for the sendgrid api
      */
     public $key;
@@ -43,16 +34,6 @@ class Mailer extends BaseMailer
      * @var array a list of options for the sendgrid api
      */
     public $options = [];
-
-    /**
-     * @var string a json string of the raw response from the sendgrid
-     */
-    private $_rawResponse;
-
-    /**
-     * @var array a list of errors
-     */
-    private $_errors = [];
 
     /**
      * @var string Send grid mailer instance
@@ -81,8 +62,6 @@ class Mailer extends BaseMailer
     {
         if ($this->key) {
             $sendgrid = new \SendGrid($this->key, $this->options);
-        } elseif ($this->username && $this->password) {
-            $sendgrid = new \SendGrid($this->username, $this->password, $this->options);
         } else {
             throw new InvalidConfigException("You must configure mailer.");
         }
@@ -91,56 +70,41 @@ class Mailer extends BaseMailer
     }
 
     /**
-     * @inheritdoc
+     * @param array|Message $message
+     *
+     * @return bool
+     * @throws \Exception
      */
     public function sendMessage($message)
     {
-        $this->setRawResponse($this->sendGridMailer->send($message->sendGridMessage));
-        $responseArray = Json::decode($this->getRawResponse());
-        if (!isset($responseArray['body']['message'])) {
-            throw new \Exception('Invalid SendGrid response format');
-        } elseif ($responseArray['body']['message'] === "success") {
-            // reset the error if success
-            $this->setErrors([]);
-
-            return true;
-        } elseif (isset($responseArray['errors'])) {
-            // reset the error if success
-            $this->setErrors($responseArray['errors']);
-
-            return false;
+        if (!($message instanceof Message) && !(BaseArrayHelper::isAssociative($message))) {
+            throw new InvalidParamException('Parâmetro $message deve ser um array associativo ou instância de \talma\sendgrid\Message');
         }
+
+        $data = ($message instanceof Message) ? $message->sendGridMessage : $message;
+
+        /** @noinspection PhpUndefinedMethodInspection */
+        /** @var Response $response */
+        $response = $this->sendGridMailer->client->mail()->send()->post($data);
+
+        if ($response) {
+            if (empty($response->statusCode())) {
+                throw new \Exception('Invalid SendGrid response');
+            }
+
+            return $this->isResponseOk($response);
+        }
+
+        return false;
     }
 
     /**
-     * @return string get the raw response, this can be a json string or empty string
+     * @param $response
+     *
+     * @return bool
      */
-    public function getRawResponse()
+    public function isResponseOk(Response $response)
     {
-        return $this->_rawResponse;
-    }
-
-    /**
-     * @param string $value set a raw response, the response get from [[sendMessage()]] is an object, convert it to json
-     */
-    public function setRawResponse($value)
-    {
-        $this->_rawResponse = Json::encode($value);
-    }
-
-    /**
-     * @return array a list of errors, the response get [[sendMessage()]]
-     */
-    public function getErrors()
-    {
-        return $this->_errors;
-    }
-
-    /**
-     * @param array $errors a array of errors
-     */
-    public function setErrors($errors)
-    {
-        $this->_errors = $errors;
+        return $response->statusCode() >= 200 && $response->statusCode() < 300;
     }
 }
