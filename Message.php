@@ -297,7 +297,7 @@ class Message extends BaseMessage
      */
     private function addEmailParam($paramValue, $paramType)
     {
-        if (!is_array($paramValue) || BaseArrayHelper::isAssociative($paramValue)) {
+        if (!is_array($paramValue)) {
             $this->addSingleParam($paramValue, $paramType);
         } else {
             foreach ($paramValue as $value) {
