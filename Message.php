@@ -297,12 +297,12 @@ class Message extends BaseMessage
      */
     private function addEmailParam($paramValue, $paramType)
     {
-        if (!is_array($paramValue)) {
-            $this->addSingleParam($paramValue, $paramType);
-        } else {
-            foreach ($paramValue as $value) {
-                $this->addSingleParam($value, $paramType);
+        if (is_array($paramValue)) {
+            foreach ($paramValue as $key => $value) {
+                $this->addSingleParam([$key => $value], $paramType);
             }
+        } else {
+            $this->addSingleParam($paramValue, $paramType);
         }
 
         return $this;
@@ -315,14 +315,28 @@ class Message extends BaseMessage
     private function addSingleParam($paramValue, $paramType)
     {
         $addFunction = 'add' . ucfirst($paramType);
-        if (is_array($paramValue) && BaseArrayHelper::isAssociative($paramValue)) {
-            $address = key($paramValue);
-            $name = current($paramValue);
-            $email = new Email($name, $address);
-            $this->getPersonalization()->$addFunction($email);
+        if (is_array($paramValue)) {
+            if (BaseArrayHelper::isAssociative($paramValue)) {
+                $address = key($paramValue);
+                $name = current($paramValue);
+                $this->addEmailFunctionParams($addFunction, $address, $name);
+            } else {
+                $address = current($paramValue);
+                $this->addEmailFunctionParams($addFunction, $address);
+            }
         } else {
-            $email = new Email(null, $paramValue);
-            $this->getPersonalization()->$addFunction($email);
+            $this->addEmailFunctionParams($addFunction, $paramValue);
         }
+    }
+
+    /**
+     * @param $addFunction
+     * @param $address
+     * @param null $name
+     */
+    private function addEmailFunctionParams($addFunction, $address, $name = null)
+    {
+        $email = new Email($name, $address);
+        $this->getPersonalization()->$addFunction($email);
     }
 }
